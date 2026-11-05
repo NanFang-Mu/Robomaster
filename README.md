@@ -1,0 +1,13 @@
+# Robomaster 视觉组任务仓库
+## 个人信息
+姓名：赵孝楠
+学号：2026212245
+## 目录结构说明
+`Final_RM_1026_1108/`：项目主目录
+`docs/`：过程记录、问题记录、运行说明
+`images/`：测试图片集，即输入图
+`output/`：程序运行生成的结果图，即输出图
+`Screenshot/`：程序运行截图
+`function.cpp` / `main.cpp`：源代码
+`function.h`：头文件
+`CMakeLists.txt`：CMake构建文件

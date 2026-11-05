@@ -1,0 +1,10 @@
+# 忽略所有编译生成的 build 文件夹
+build/
+
+# 忽略可执行文件和中间文件
+*.exe
+*.o
+*.obj
+
+# 忽略 VS Code 的配置文件
+.vscode/

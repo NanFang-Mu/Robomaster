@@ -8,3 +8,7 @@ build/
 
 # 忽略 VS Code 的配置文件
 .vscode/
+
+# 选择性忽略大数据文件
+*.avi
+*.png

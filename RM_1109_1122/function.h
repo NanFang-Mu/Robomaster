@@ -21,13 +21,21 @@ struct Armor
 {   
     int id; // 编号
     bool colorFlag; // 颜色标志，true表示红色，false表示蓝色    
-    cv::Point2f center; // 中心点
-    std::vector<cv::Point2f> vertices = std::vector<cv::Point2f>(4); // 四角点集合
+    cv::Point2f center; // 中心点，单精度
+    std::vector<cv::Point2f> vertices = std::vector<cv::Point2f>(4); // 四角点集合，单精度
     bool isValid; // 是否有效
 };
 
 // 函数声明
+
 // 声明函数：返回装甲板容器，参数为3个可修改的矩阵
 std::vector<Armor> detectArmor(cv::Mat &target_mask, cv::Mat &lightbar_candidate, cv::Mat &armor_result, bool colorFlag);
+
 // 声明函数：单帧接口函数
 std::vector<Armor> detectArmor(const cv::Mat& image);
+
+// 计算位姿是否有效，函数
+bool pose_is_solved(const std::vector<cv::Point2f> &armor_image_vertices, // 像素坐标系下的装甲板四角点坐标（已经进行过点序规范）
+                   cv::Vec3d &rvec, cv::Vec3d &tvec, // 保留tvec和rvec
+                   double &distance, // 保留distance，即armor中心到相机光心的距离
+                   double &tz); // 保留相机z轴方向深度深度

@@ -4,10 +4,125 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/geometry.hpp>
 #include <string>
+#include <cmath>
 #include <algorithm>
 
-// 函数：返回装甲板容器，参数为4个可修改的矩阵，一个颜色标志(识别红色)
-std::vector<Armor> detectArmor(cv::Mat &target_mask, cv::Mat &lightbar_candidate, cv::Mat &armor_result, bool colorFlag)
+// 图片标注
+void imageMark(cv::Mat& image)
+{
+    // 声明或定义变量
+    cv::Mat image_temp = image.clone();
+    std::vector<Armor> armor_list = detectArmor(image_temp);
+    bool is_validArmor;
+
+    // 如果armor_list为空，则跳过标注
+    if (armor_list.empty())
+    {
+        is_validArmor = false;
+        return;
+    }
+    // 否则进行标注
+    else
+    {
+        is_validArmor = true;
+        for (const Armor &armor : armor_list)
+        {            
+            // 装甲板检测情况的图片标注           
+            // 绘制装甲板的四角点连线
+            for (int k = 0; k < armor.vertices.size(); k++)
+            {
+                cv::line(image, armor.vertices[k], armor.vertices[(k + 1) % 4], cv::Scalar(0, 255, 0), 2);
+            }
+            // 绘制装甲板的四角点及编号
+            for (int v = 0; v < armor.vertices.size(); v++)
+            {
+                cv::circle(image, armor.vertices[v], 4, cv::Scalar(0, 255, 255), -1);                
+                cv::putText(image, std::to_string(v), armor.vertices[v] + cv::Point2f(5, -5), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 255), 1);
+            }           
+            // 在装甲板的中心绘制准心
+            cv::drawMarker(image, armor.center, cv::Scalar(0, 255, 255), cv::MARKER_CROSS, 10, 2);
+        }
+    }
+
+    // 对装甲板数组里的每一块装甲板进行重投影处理
+    for (int i = 0; i < armor_list.size(); i++)
+    {
+        // 声明相关位姿解算需要的变量
+        cv::Vec3d rvec;
+        cv::Vec3d tvec;                               // 作为返回平移向量tvec和旋转向量rvec
+        double distance = 0;                          // 保留distance，即armor中心到相机光心的距离
+        double tz = 0;                                // 保留相机z轴方向深度深度
+        std::vector<cv::Point2d> reprojection_points; // 返回重投影得到的角点，可选
+
+        // 尝试解算位姿
+        armor_list[i].is_PnP = pose_is_solved(armor_list[i].vertices, rvec, tvec, distance, tz, reprojection_points);
+
+        // 解算位姿成功时
+        if (armor_list[i].is_PnP)
+        {
+            // 计算reprojection_Points数组里的四个点的x，y各自的算术平均值
+            double x_average = 0, y_average = 0;
+            cv::Point2d reprojection_center;
+            double x_sum = 0, y_sum = 0;
+            for (int v = 0; v < reprojection_points.size(); v++)
+            {
+                x_sum += reprojection_points[v].x;
+                y_sum += reprojection_points[v].y;
+            }
+            x_average = x_sum / reprojection_points.size();
+            y_average = y_sum / reprojection_points.size();
+            reprojection_center.x = x_average;
+            reprojection_center.y = y_average;
+
+            // 位姿解算情况的图片标注
+            // 准备文本
+            std::string text1, text2;
+            if (is_validArmor)
+            {
+                text1 = "检测到装甲板    Armor_id : " + std::to_string(armor_list[i].id);
+            }
+            if (armor_list[i].is_PnP)
+            {
+                text2 = "姿态解算成功";
+            }
+            else
+            {
+                text2 = "姿态解算失败";
+            }
+            // 计算文本高度宽度
+            int baseline = 0;
+            cv::Size textSize = cv::getTextSize(text1 + "    " + text2, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
+            // 绘制黑色背景矩形
+            cv::rectangle(image, armor_list[i].vertices[0] + cv::Point2f(0, -textSize.height - 20), armor_list[i].vertices[0] + cv::Point2f(textSize.width, -20), cv::Scalar(0, 0, 0), cv::FILLED);
+            // 绘制黄色正常或红色可疑文字
+            if (is_validArmor && armor_list[i].is_PnP)
+            {
+                cv::putText(image, text1 + "    " + text2,
+                            armor_list[i].vertices[0] + cv::Point2f(0, -20), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 255), 1);
+            }
+            else
+            {
+                cv::putText(image, text1 + "    " + text2,
+                            armor_list[i].vertices[0] + cv::Point2f(0, -20), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 255), 1);
+            }
+
+            // 可注释项：重投影情况的图片标注
+            for (int k = 0; k < reprojection_points.size(); k++)
+            {
+                // 四角点连线
+                cv::line(image, reprojection_points[k], reprojection_points[(k + 1) % 4], cv::Scalar(253, 86, 224), 2);
+                // 绘制重投影的四角点
+                cv::circle(image, reprojection_points[k], 4, cv::Scalar(139, 0, 139), -1);
+            }
+            // 在重投影的中心绘制准心
+            cv::drawMarker(image, reprojection_center, cv::Scalar(139, 0, 139), cv::MARKER_CROSS, 10, 2);
+        }
+    }
+}
+
+
+// 从图片中检测装甲板
+std::vector<Armor> detectArmor(cv::Mat& target_mask)
 {
     // 把target_mask转为hsv
     cv::cvtColor(target_mask, target_mask, cv::COLOR_BGR2HSV);
@@ -47,36 +162,11 @@ std::vector<Armor> detectArmor(cv::Mat &target_mask, cv::Mat &lightbar_candidate
 
         lightBars[i].area = cv::contourArea(contours[i]);
         lightBars[i].id = i + 1;
-        lightBars[i].colorFlag = colorFlag; // 颜色标志，true表示红色，false表示
+        lightBars[i].colorFlag = true; // 颜色标志，true表示红色，false表示不是红色
     }
 
-    // // 遍历灯条容器,在lightbar_candidate.png上绘制轮廓的最小外接旋转矩形，中心点和对应编号
-    // for (int i = 0; i < lightBars.size(); i++)
-    // {
-
-    //     // 遍历灯条容器,在lightbar_candidate.png上绘制轮廓的最小外接旋转矩形
-    //     cv::Point2f vertices[4];
-    //     lightBars[i].minRect.points(vertices);
-    //     for (int j = 0; j < 4; j++)
-    //     {
-    //         cv::line(lightbar_candidate, vertices[j], vertices[(j + 1) % 4], cv::Scalar(0, 255, 0), 2);
-    //     }
-
-    //     cv::Point2f center = lightBars[i].minRect.center;
-    //     cv::putText(lightbar_candidate, std::to_string(lightBars[i].id), center, cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 255), 2);
-    //     cv::circle(lightbar_candidate, center, 2, cv::Scalar(0, 255, 0), -1);
-    //     //同时在终端输出面积,长度,宽度,角度,中心点坐标，颜色标志
-    //     // std::cout << "LightBar " << lightBars[i].id << " Area:" << lightBars[i].area << std::endl;
-    //     // std::cout << "LightBar " << lightBars[i].id << " Length:" << lightBars[i].length << std::endl;
-    //     // std::cout << "LightBar " << lightBars[i].id << " Width:" << lightBars[i].width << std::endl;
-    //     // std::cout << "LightBar " << lightBars[i].id << " Angle:" << lightBars[i].angle << std::endl;
-    //     // std::cout << "LightBar " << lightBars[i].id << " center:" << lightBars[i].minRect.center << std::endl;
-    //     // std::cout << "LightBar " << lightBars[i].id << " Color:" << lightBars[i].colorFlag << std::endl;
-    //     // std::cout << std::endl;
-    // }
-
     // 声明一个装甲版容器
-    std::vector<Armor> armors;
+    std::vector<Armor> armor_list;
 
     // 遍历灯条容器，按一定条件进行配对
     for (size_t i = 0; i < lightBars.size(); ++i)
@@ -108,15 +198,6 @@ std::vector<Armor> detectArmor(cv::Mat &target_mask, cv::Mat &lightbar_candidate
             // 声明灯条距离差与装甲板宽度的比值
             double distanceRatio = distance / armor_width;
 
-            // 终端输出上述数据
-            // std::cout << "LightBar " << i + 1 << " and " << "LightBar " << j + 1 << " comparison:" << std::endl;
-            // std::cout << "Distance: " << distance << std::endl;
-            // std::cout << "Area Difference: " << areaDiff << std::endl;
-            // std::cout << "Height Difference: " << heightDiff << std::endl;
-            // std::cout << "Angle Difference: " << angleDiff << std::endl;            
-            // std::cout << "DistanceRatio: " << distanceRatio << std::endl;
-            // std::cout << std::endl;
-
             // 声明一个临时装甲板结构体
             Armor armor;
 
@@ -127,10 +208,7 @@ std::vector<Armor> detectArmor(cv::Mat &target_mask, cv::Mat &lightbar_candidate
                 && heightDiff < 30 
                 && distanceRatio < 1.3
                 && distanceRatio > 0.9)    
-            {
-                // 全部数据通过，视为有效
-                armor.isValid = true;                
-
+            {                                    
                 // 将配对的两个灯条的所有角点放到容器中
                 std::vector<cv::Point> armorPoints;
                 // 获取灯条i的minRect成员的的四个角点
@@ -160,19 +238,7 @@ std::vector<Armor> detectArmor(cv::Mat &target_mask, cv::Mat &lightbar_candidate
                 // 当前配对的是灯条i和j
                 cv::Point2f pts_i[4], pts_j[4];
                 lightBars[i].minRect.points(pts_i);
-                lightBars[j].minRect.points(pts_j);
-
-                // 输出灯条四角点坐标
-                // std::cout << std::endl << "灯条四角点坐标：" << std::endl;
-                // for (int k = 0; k < 4; k++)
-                // {
-                //     std::cout << "LightBar " << lightBars[i].id << " Vertex " << k << ": (" << pts_i[k].x << ", " << pts_i[k].y << ")" << std::endl;
-                // }
-                // for (int k = 0; k < 4; k++)
-                // {
-                //     std::cout << "LightBar " << lightBars[j].id << " Vertex " << k << ": (" << pts_j[k].x << ", " << pts_j[k].y << ")" << std::endl;
-                // }
-                // std::cout << std::endl;
+                lightBars[j].minRect.points(pts_j);    
 
                 // 将两根灯条的8个顶点放到一个容器里
                 std::vector<cv::Point2f> all_pts;
@@ -220,56 +286,24 @@ std::vector<Armor> detectArmor(cv::Mat &target_mask, cv::Mat &lightbar_candidate
                 armor.vertices[0] = tl; // 左上
                 armor.vertices[1] = tr; // 右上
                 armor.vertices[2] = br; // 右下
-                armor.vertices[3] = bl; // 左下
-
-                // 在终端输出armor的颜色标志，中心点，四角点，是否有效                    
-                // std::cout << "Armor Color: " << armor.colorFlag << std::endl;
-                // std::cout << "Armor Center: (" << armor.center.x << ", " << armor.center.y << ")" << std::endl;
-                // std::cout << "Armor Vertex: ";
-                // for (cv::Point2f Point : armor.vertices)
-                // {
-                //     std::cout << "(" << Point.x << ", " << Point.y << ")" << " ";
-                // }
-                // std::cout << std::endl;
-                // std::cout << "Armor Valid: " << armor.isValid << std::endl;
-                // std::cout << std::endl;
-
-                // // 根据armor.vertices连线
-                // for (int k = 0; k < 4; k++)
-                // {
-                //     cv::line(armor_result, armor.vertices[k], armor.vertices[(k + 1) % 4], cv::Scalar(0, 255, 0), 2);
-                // }
-
-                // // 在图像上绘制装甲板中心点
-                // cv::circle(armor_result, armor.center, 5, cv::Scalar(0, 255, 0), -1);                
+                armor.vertices[3] = bl; // 左下                               
 
                 // 新增有效装甲板进入容器中
-                armors.push_back(armor);
-                armors[armors.size() - 1].id = armors.size() - 1;
-
-                // // 在armor_result上绘制装甲板的编号
-                // cv::putText(armor_result, std::to_string(armors[armors.size() - 1].id), armor.center, cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 255), 1);
-
-                // // 在armor_result上绘制装甲板的四角点编号
-                // for (int v = 0; v < 4; v++)
-                // {
-                //     cv::circle(armor_result, armor.vertices[v], 5, cv::Scalar(0, 255, 0), -1);
-                //     std::string text = std::to_string(armors.size()) + "." + std::to_string(v);
-                //     cv::putText(armor_result, text, armor.vertices[v], cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 255), 1);
-                // }
+                armor_list.push_back(armor);
+                armor_list[armor_list.size() - 1].id = armor_list.size() - 1;            
             }
         }
     }
 
     // 去重
-    std::vector<Armor> final_armors;
-    for (size_t i = 0; i < armors.size(); i++)
+    std::vector<Armor> final_armor_list;
+    for (size_t i = 0; i < armor_list.size(); i++)
     {
         bool is_duplicate = false;
-        for (size_t j = 0; j < final_armors.size(); j++)
+        for (size_t j = 0; j < final_armor_list.size(); j++)
         {
             // 计算两个候选装甲板中心点的距离
-            double dist = cv::norm(armors[i].center - final_armors[j].center);
+            double dist = cv::norm(armor_list[i].center - final_armor_list[j].center);
             // 如果两个框中心点距离小于30像素，就认定它们是同一个目标
             if (dist < 30.0)
             {
@@ -279,20 +313,21 @@ std::vector<Armor> detectArmor(cv::Mat &target_mask, cv::Mat &lightbar_candidate
         }
         if (!is_duplicate) // 不是重复，就添加到最终装甲板容器中
         {
-            final_armors.push_back(armors[i]);
-            final_armors[final_armors.size() - 1].id = final_armors.size() - 1; // 重新编号
+            final_armor_list.push_back(armor_list[i]);
+            final_armor_list[final_armor_list.size() - 1].id = final_armor_list.size() - 1; // 重新编号
         }
     }
 
     // 返回装甲板容器
-    return final_armors;
+    return final_armor_list;
 }
 
-// 计算位姿是否有效，函数
-bool pose_is_solved(const std::vector<cv::Point2f> &armor_image_vertices, // 像素坐标系下的装甲板四角点坐标（已经进行过点序规范）
-                   cv::Vec3d &rvec, cv::Vec3d &tvec, // 保留tvec和rvec
-                   double &distance, // 保留distance，即armor中心到相机光心的距离
-                   double &tz) // 保留相机z轴方向深度深度
+// 计算位姿是否有效
+bool pose_is_solved(const std::vector<cv::Point2f> &armor_image_vertices, // 像素坐标系下的装甲板四角点坐标（已经进行过点序规范）                    
+                    cv::Vec3d &rvec, cv::Vec3d &tvec, // 作为返回平移向量tvec和旋转向量rvec
+                    double &distance, // 保留distance，即armor中心到相机光心的距离
+                    double &tz,// 保留相机z轴方向深度深度 
+                    std::vector<cv::Point2d> &reprojection_points) // 返回重投影得到的角点，可选                   
 {
     // 3D 模型点（单位：米），原点在装甲板中心，板面位于 Z=0 平面
     const double w = 0.135;
@@ -312,25 +347,46 @@ bool pose_is_solved(const std::vector<cv::Point2f> &armor_image_vertices, // 像
                  0, 0, 1);
     cv::Mat D = (cv::Mat_<double>(1, 5) << 0.1301456438, -3.237695144, -0.0007849919824, 0.001116547072, 17.43296795);
 
-    const bool is_solved = cv::solvePnP(armor_world_vertices, armor_image_vertices, K, D, rvec, tvec);
+    // 把传入的armor_image_vertices又float转换为double数据类型
+    std::vector<cv::Point2d> armor_image_vertices2;
+    for (int i = 0; i < armor_image_vertices.size(); i++)
+    {
+        armor_image_vertices2.push_back(static_cast<cv::Point2d>(armor_image_vertices[i]));
+    }
+
+    // 返回值状态确认是否成功求解rvec和tvec
+    const bool is_solved = cv::solvePnP(armor_world_vertices, armor_image_vertices2, K, D, rvec, tvec);
 
     if (is_solved)
-    {
-        // 根据solvePnP得到的tvec计算distance
+    {   
+        // 根据solvePnP得到的tvec计算distance，distance装甲板中心到相机光心的距离
         distance = std::sqrt(tvec[0] * tvec[0] + tvec[1] * tvec[1] + tvec[2] * tvec[2]);
 
-        //保留tz
-        tz = std::sqrt(tvec[2] * tvec[2]);  // 不要和光心到装甲板的距离混淆
+        //保留tz，作为装甲板中心在相机坐标系下Z轴上的深度
+        tz = std::sqrt(tvec[2] * tvec[2]); 
 
         // 根据solvePnP得到的rvec计算角度
-        cv::Mat rotationMatrix;
-        cv::Rodrigues(rvec, rotationMatrix);
+        cv::Mat rotation_matrix;
+        cv::Rodrigues(rvec, rotation_matrix);
+
+        // 重投影，得到一组重投影的四角点        
+        cv::projectPoints(armor_world_vertices, rvec, tvec, K, D, reprojection_points);
+
+        // 对原始四角点和重投影四角点进行误差分析
+        double reprojection_error_px = 0;
+        double e_arr[4] = {0, 0, 0, 0};
+        for (int i = 0; i < 4; i++)
+        {
+            e_arr[i] = sqrt(std::pow(armor_image_vertices2[i].x - reprojection_points[i].x, 2)
+                          + std::pow(armor_image_vertices2[i].y - reprojection_points[i].y, 2));
+        }
 
         return true;
     }
     else
     {
-        std::cerr << "solvePnP解算失败"  << std::endl;
+        // 解算失败则返回空矩阵，后续用.size()作为条件跳过其绘图
+        reprojection_points = {};    
         return false;
     }
 }

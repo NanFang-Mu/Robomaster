@@ -6,10 +6,14 @@
 void folder_management();
 
 // 视频模式下命令行参数设置
-void video_command_set(int argc, char **argv, std::string& read_path);
+void video_command_set(int argc,
+                       char **argv,
+                       std::string &read_path);
 
 // 图片模式下命令行参数设置
-void image_command_set(int argc, char **argv, std::string& read_path);
+void image_command_set(int argc,
+                       char **argv,
+                       std::string &read_path);
 
-// 视频标注
-void video_mark(cv::VideoCapture& cap);
+// 视频标注，可调整参数为1选Debug模式（增加重投影标注）
+void video_mark(cv::VideoCapture& cap, const int mode);

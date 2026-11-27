@@ -1,5 +1,7 @@
 #include <filesystem>
 #include <iostream>
+#include <string>
+#include <fstream>
 
 #include <opencv2/opencv.hpp>
 
@@ -25,12 +27,27 @@ void folder_management()
         std::cout << "创建文件夹./images" << std::endl;
     }
 
-    // 清空./output文件夹中的所有文件
-    for (const auto &entry : std::filesystem::directory_iterator("./output"))
+    // 清空./output文件夹中的所有文件夹和文件
+    for (const auto& entry : std::filesystem::directory_iterator("./output"))
     {
-        std::filesystem::remove(entry.path());
-        std::cout << "正在清空./output文件夹中的所有文件" << std::endl;
-    }    
+        std::filesystem::remove_all(entry.path());
+    }
+    
+    // 检测文件夹./output/armor_suspicious/是否存在，不存在则创建
+    if (!std::filesystem::exists("./output/armor_suspicious"))
+    {
+        std::filesystem::create_directory("./output/armor_suspicious");
+        std::cout << "创建文件夹./output/armor_suspicious" << std::endl;
+    }
+
+    // 在./output/下面检测frame_data.csv是否存在，不存在则创建
+    if (!std::filesystem::exists("./output/frame_data.csv"))
+    {        
+        std::ofstream file("./output/frame_data.csv");
+        file << "frame_id,time_s,detect_valid,candidate_id,pnp_valid,tx_m,ty_m,tz_m,distance_m,rx_rad,ry_rad,rz_rad,reprojection_error_px,is_suspicious\n";
+        file.close();
+        std::cout << "创建文件./output/frame_data.csv" << std::endl;
+    }        
 }
 
 // 视频模式下命令行参数设置
@@ -66,7 +83,7 @@ void image_command_set(int argc, char **argv, std::string& read_path)
 }
 
 // 视频标注
-void video_mark(cv::VideoCapture& cap)
+void video_mark(cv::VideoCapture& cap, const int mode)
 {   
     // 获取视频文件的配置    
     double fps;
@@ -124,13 +141,10 @@ void video_mark(cv::VideoCapture& cap)
         std::cerr << "无法创建输出视频文件，请检查output文件夹是否存在\n";
         return;
     }
-
+    
     // 逐帧读取循环
     while (cap.read(frame))
-    {   
-        // 进度，待完善
-        std::cout << "#";
-        
+    {           
         // 防御性检查：确保读到的不是空帧
         if (frame.empty())
         {
@@ -141,8 +155,12 @@ void video_mark(cv::VideoCapture& cap)
         // 计算相对时间
         double time_s = frame_id / fps;
 
+        // 全局临时变量设置帧号和时间点
+        ::frame_id = frame_id;
+        ::time_s = time_s;
+
         // 对单帧进行标注
-        imageMark(frame);
+        imageMark(frame, mode);
 
         // 在画面左上角绘制当前帧信息
         int baseline1 = 0;
@@ -159,10 +177,73 @@ void video_mark(cv::VideoCapture& cap)
         {
             std::cerr << "第 " << frame_id << " 帧未能写入" << std::endl;
         }
+        else
+        {
+            std::ofstream file("./output/frame_data.csv", std::ios::app);
+            if (::armor_listTemp.empty())
+            {   
+                // 无候选装甲板时，仅保留帧号、时间和无效标记
+                file << ::frame_id << ","
+                     << ::time_s << ","
+                     << 0 << ","                                          
+                     << ",,,,,,,,,,\n";
+            }
+            else
+            {
+                // 有候选装甲板时
+                for (const Armor &armor : ::armor_listTemp)
+                {                   
+                    file << armor.frame_id << ","
+                         << armor.time_s << ","
+                         << armor.is_valid << ","               
+                         << armor.armor_id << ","
+                         << armor.is_solvePnP << ",";                         
+                        if (armor.is_solvePnP) // 位姿解算成功时，写入位姿数据
+                        {
+                            file << armor.tx_m << ","
+                                 << armor.ty_m << ","
+                                 << armor.tz_m << ","
+                                 << armor.distance_m << ","
+                                 << armor.rx_rad << ","
+                                 << armor.ry_rad << ","
+                                 << armor.rz_rad << ","
+                                 << armor.reprojection_error_px << ","
+                                 << armor.is_suspicious << "\n";
+                        }                                             
+                        else // 位姿解算失败时，位姿数据留空
+                        {
+                            file << ",,,,,,,,\n";
+                        }                         
+                }
+            }
+            file.close();
+        }
+
+        // 进度可视化
+        if (frame_id == total_frames * 0.2)
+        {
+            std::cout << "视频处理进度：20%" << std::endl;
+        }
+        if (frame_id == total_frames * 0.4)
+        {
+            std::cout << "视频处理进度：40%" << std::endl;
+        }
+        if (frame_id == total_frames * 0.6)
+        {
+            std::cout << "视频处理进度：60%" << std::endl;
+        }
+        if (frame_id == total_frames * 0.8)
+        {
+            std::cout << "视频处理进度：80%" << std::endl;
+        }
+
+        // 全局临时装甲板数据清空
+        ::armor_listTemp.clear();
 
         // 帧编号自加
         frame_id++;
     }
+    std::cout << "视频处理进度：100%" << std::endl;
 
     // 资源释放
     writer.release();

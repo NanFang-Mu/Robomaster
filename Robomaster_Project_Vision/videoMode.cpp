@@ -1,24 +1,3 @@
-/*************************************************************************************
- 该程序的输入对象：
- 一张.png格式的，分辨率为1280x1024的，包含识别目标（装甲板和灯条）的三通道彩图
-
- 默认输入路径：
- ./images/outpost_frame.png
-
- 命令行参数输入路径：
- ./你的main.exe所在目录/main.exe ./你的图片输入路径
-
- 该程序的输出对象：
- 最终装甲板结果图：armor_result.png
- 灯条候选图：light_candidates.png
- 实际目标颜色mask：target_mask.png
-
- 默认输出路径：
- ./output/armor_result.png
- ./output/light_candidates.png
- ./output/target_mask.png
-**************************************************************************************/
-
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -28,7 +7,6 @@
 #include <filesystem>
 
 #include <opencv2/opencv.hpp>
-#include <opencv2/calib3d.hpp>
 
 #include "function.h"
 #include "tool.h"
@@ -57,7 +35,7 @@ int main(int argc, char **argv)
     }
     
     // 对视频对象进行配置获取，标注和保存
-    video_mark(cap);
+    video_mark(cap, 0);
 
     // 资源释放
     cap.release();    

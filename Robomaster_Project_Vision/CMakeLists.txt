@@ -13,3 +13,11 @@ target_link_libraries(videoMode PRIVATE ${OpenCV_LIBS})#链接OpenCV头文件和
 add_executable(imageMode imageMode.cpp function.cpp tool.cpp)#生成可执行文件imageMode.exe
 target_include_directories(imageMode PRIVATE ${OpenCV_INCLUDE_DIRS})#告知编译器头文件位置
 target_link_libraries(imageMode PRIVATE ${OpenCV_LIBS})#链接OpenCV头文件和库
+
+add_executable(videoDebug videoDebug.cpp function.cpp tool.cpp)#生成可执行文件videoDebug.exe
+target_include_directories(videoDebug PRIVATE ${OpenCV_INCLUDE_DIRS})#告知编译器头文件位置
+target_link_libraries(videoDebug PRIVATE ${OpenCV_LIBS})#链接OpenCV头文件和库
+
+add_executable(imageDebug imageDebug.cpp function.cpp tool.cpp)#生成可执行文件imageDebug.exe
+target_include_directories(imageDebug PRIVATE ${OpenCV_INCLUDE_DIRS})#告知编译器头文件位置
+target_link_libraries(imageDebug PRIVATE ${OpenCV_LIBS})#链接OpenCV头文件和库

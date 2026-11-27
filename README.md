@@ -20,7 +20,9 @@
 		- `Operating_Instructions.txt`：运行说明
 		- `Process_Record.txt`：过程记录
 	- `videos/`：输入的视频文件，见Releases
+        - `outpost_video.avi`：输入视频默认文件名     
 	- `images/`：输入的图片文件，见Releases
+        - `outpost_frame.png`：输入图默认文件名
 	- `output/`：程序运行生成的结果，见Releases
 		- `armor_suspicious/`：视频调试模式下保存的可疑ROI裁剪记录
 		- `frame_data.csv`：逐帧数据文件
